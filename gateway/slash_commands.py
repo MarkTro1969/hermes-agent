@@ -334,6 +334,16 @@ class GatewaySlashCommandsMixin(
         runnable_str = ", ".join(f"/{c}" for c in runnable) if runnable else "(none)"
         return head + f"Tier: user\nSlash commands you can run: {runnable_str}"
 
+    async def _handle_workers_command(self, event: MessageEvent) -> str:
+        """Show verified Kanban worker liveness across all active boards."""
+        from hermes_cli.kanban_workers import format_kanban_workers
+
+        try:
+            return await asyncio.to_thread(format_kanban_workers)
+        except Exception as exc:
+            logger.debug("workers command failed: %s", exc, exc_info=True)
+            return "Could not read Kanban worker status."
+
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI (DB work in a thread pool). Allowed
         while an agent runs: the board is profile-agnostic and never touches agent state."""
