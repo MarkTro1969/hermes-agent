@@ -35,6 +35,57 @@ from utils import atomic_json_write, is_truthy_value
 
 logger = logging.getLogger("gateway.run")
 
+_WORKERS_OUTPUT_LIMIT = 3900
+_WORKERS_OUTPUT_LIMITS = {
+    "discord": 1900,
+    "slack": 39000,
+    "telegram": 3900,
+}
+
+
+def _truncate_worker_section(text: str, limit: int, detail_command: str) -> str:
+    """Keep a unified worker section inside its budget without cutting a Markdown line."""
+    if len(text) <= limit:
+        return text
+    suffix = f"\n…section truncated; use `/{detail_command}` for full details."
+    budget = max(0, limit - len(suffix))
+    kept: list[str] = []
+    used = 0
+    for line in text.splitlines():
+        cost = len(line) + (1 if kept else 0)
+        if used + cost > budget:
+            break
+        kept.append(line)
+        used += cost
+    return "\n".join(kept) + suffix
+
+
+def render_worker_sections(agents: str, kanban: str, *, limit: int = _WORKERS_OUTPUT_LIMIT) -> str:
+    """Render both worker sources fairly so one large section cannot hide the other."""
+    agents = str(agents or "No active Hermes agents.")
+    kanban = str(kanban or "No active Kanban workers.")
+    agents_header = "**Hermes agents**\n"
+    kanban_header = "\n\n**Kanban workers**\n"
+    budget = max(0, limit - len(agents_header) - len(kanban_header))
+    agents_budget = min(len(agents), budget // 2)
+    kanban_budget = min(len(kanban), budget // 2)
+    remaining = budget - agents_budget - kanban_budget
+    if remaining and len(agents) > agents_budget:
+        added = min(remaining, len(agents) - agents_budget)
+        agents_budget += added
+        remaining -= added
+    if remaining and len(kanban) > kanban_budget:
+        kanban_budget += min(remaining, len(kanban) - kanban_budget)
+    agents = _truncate_worker_section(agents, agents_budget, "agents")
+    kanban = _truncate_worker_section(kanban, kanban_budget, "kanban")
+    return f"{agents_header}{agents}{kanban_header}{kanban}"
+
+
+def _worker_output_limit(event: MessageEvent) -> int:
+    """Leave formatting headroom while keeping each supported platform to one message."""
+    platform = getattr(getattr(getattr(event, "source", None), "platform", None), "value", "")
+    return _WORKERS_OUTPUT_LIMITS.get(platform, _WORKERS_OUTPUT_LIMIT)
+
 
 # /rollback result keys -> i18n line for files the safe restore left alone.
 _ROLLBACK_SKIP_LINES = (("skipped_user_edits", "gateway.rollback.kept_user_edits"),
@@ -335,14 +386,20 @@ class GatewaySlashCommandsMixin(
         return head + f"Tier: user\nSlash commands you can run: {runnable_str}"
 
     async def _handle_workers_command(self, event: MessageEvent) -> str:
-        """Show verified Kanban worker liveness across all active boards."""
+        """Show local Hermes activity and verified Kanban workers in one bounded view."""
         from hermes_cli.kanban_workers import format_kanban_workers
 
         try:
-            return await asyncio.to_thread(format_kanban_workers)
+            agents = await self._handle_agents_command(event)
         except Exception as exc:
-            logger.debug("workers command failed: %s", exc, exc_info=True)
-            return "Could not read Kanban worker status."
+            logger.debug("workers command could not read Hermes agents: %s", exc, exc_info=True)
+            agents = "Could not read Hermes agent status."
+        try:
+            kanban = await asyncio.to_thread(format_kanban_workers)
+        except Exception as exc:
+            logger.debug("workers command could not read Kanban workers: %s", exc, exc_info=True)
+            kanban = "Could not read Kanban worker status."
+        return render_worker_sections(agents, kanban, limit=_worker_output_limit(event))
 
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI (DB work in a thread pool). Allowed
