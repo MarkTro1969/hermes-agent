@@ -115,7 +115,8 @@ def test_workers_combined_output_is_bounded_and_preserves_both_sections():
     assert result.startswith("**Hermes agents**")
     assert "**Kanban workers**" in result
     assert "use `/agents` for full details" in result
-    assert "use `/kanban` for full details" in result
+    assert "use `/kanban` for full details" not in result
+    assert result.endswith("…section truncated.")
 
 
 @pytest.mark.parametrize(

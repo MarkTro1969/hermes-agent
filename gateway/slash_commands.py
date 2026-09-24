@@ -43,11 +43,13 @@ _WORKERS_OUTPUT_LIMITS = {
 }
 
 
-def _truncate_worker_section(text: str, limit: int, detail_command: str) -> str:
+def _truncate_worker_section(text: str, limit: int, detail_command: str | None = None) -> str:
     """Keep a unified worker section inside its budget without cutting a Markdown line."""
     if len(text) <= limit:
         return text
-    suffix = f"\n…section truncated; use `/{detail_command}` for full details."
+    suffix = "\n…section truncated."
+    if detail_command:
+        suffix = f"\n…section truncated; use `/{detail_command}` for full details."
     budget = max(0, limit - len(suffix))
     kept: list[str] = []
     used = 0
@@ -77,7 +79,7 @@ def render_worker_sections(agents: str, kanban: str, *, limit: int = _WORKERS_OU
     if remaining and len(kanban) > kanban_budget:
         kanban_budget += min(remaining, len(kanban) - kanban_budget)
     agents = _truncate_worker_section(agents, agents_budget, "agents")
-    kanban = _truncate_worker_section(kanban, kanban_budget, "kanban")
+    kanban = _truncate_worker_section(kanban, kanban_budget)
     return f"{agents_header}{agents}{kanban_header}{kanban}"
 
 
