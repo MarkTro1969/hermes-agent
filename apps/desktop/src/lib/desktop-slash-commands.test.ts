@@ -49,6 +49,7 @@ const REGISTRY_CATALOG = registryCatalog(
     '/usage': null,
     '/version': null,
     '/agents': null,
+    '/workers': null,
     '/steer': 'text',
     '/stop': null,
     '/bg': 'text',
@@ -86,6 +87,7 @@ describe('desktop slash command curation', () => {
     expect(desktopSlashCommandArgumentMode('/btw')).toBe('text')
     expect(resolveDesktopCommand('/lcm')?.surface).toEqual({ kind: 'exec' })
     expect(desktopSlashCommandArgumentMode('/lcm')).toBe('text')
+    expect(resolveDesktopCommand('/workers')?.surface).toEqual({ kind: 'exec' })
   })
 
   it('groups complete.slash rows by backend kind, not the desktop table', () => {
