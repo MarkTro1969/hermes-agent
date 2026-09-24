@@ -124,6 +124,7 @@
   "/voice": "composer-voice",
   "/wake": null,
   "/whoami": null,
+  "/workers": null,
   "/worktree": null,
   "/yolo": null
 }
