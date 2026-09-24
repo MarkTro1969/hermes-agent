@@ -27,7 +27,9 @@ from agent.prompt_builder import (
 )
 from agent import prompt_builder as _pb
 from agent.runtime_cwd import resolve_context_cwd
-from hermes_constants import get_default_hermes_root, get_hermes_home
+from hermes_constants import (
+    get_default_hermes_root, get_hermes_home, reset_hermes_home_override, set_hermes_home_override,
+)
 from utils import is_truthy_value
 
 logger = logging.getLogger(__name__)
@@ -309,8 +311,27 @@ def _skills_prompt(agent: Any) -> str:
         _compact_cats = coding_compact_skill_categories(platform=agent.platform, cwd=resolve_context_cwd())
     except Exception:
         _compact_cats = frozenset()
+    if not hasattr(agent, "_skills_prompt_catalog_mode"):
+        mode = "full"
+        token = None
+        try:
+            home = _agent_home(agent)
+            if home is not None:
+                token = set_hermes_home_override(str(home))
+            from hermes_cli.config import load_config_readonly
+            raw = (load_config_readonly().get("skills") or {}).get("prompt_catalog", "full")
+            if str(raw).strip().lower() == "names":
+                mode = "names"
+        except Exception:
+            logger.debug("skills.prompt_catalog resolution failed; using full catalog", exc_info=True)
+        finally:
+            if token is not None:
+                reset_hermes_home_override(token)
+        agent._skills_prompt_catalog_mode = mode
     return _pb.build_skills_system_prompt(available_tools=agent.valid_tool_names, available_toolsets=avail_toolsets,
-                                         compact_categories=_compact_cats or None, skills_dir_override=_agent_skills_dir(agent))
+                                         compact_categories=_compact_cats or None,
+                                         skills_dir_override=_agent_skills_dir(agent),
+                                         names_only=agent._skills_prompt_catalog_mode == "names")
 
 
 def _auto_load_parts(agent: Any) -> List[str]:
