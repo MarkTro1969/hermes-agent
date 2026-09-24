@@ -296,6 +296,23 @@ class TestBuildSkillsSystemPrompt:
         full = build_skills_system_prompt()
         assert "Write threads" in full
 
+    def test_names_only_keeps_discovery_names_without_descriptions_and_has_own_cache_entry(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        d = tmp_path / "skills" / "social-media" / "thread-writer"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\nname: thread-writer\ndescription: Write excellent threads\n---\n"
+        )
+
+        compact = build_skills_system_prompt(names_only=True)
+        assert "thread-writer" in compact
+        assert "Write excellent threads" not in compact
+
+        full = build_skills_system_prompt()
+        assert "Write excellent threads" in full
+
 
 
     def test_excludes_disabled_skills(self, monkeypatch, tmp_path):

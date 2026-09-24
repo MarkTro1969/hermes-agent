@@ -1262,6 +1262,7 @@ def _current_session_platform_hint() -> str:
 def build_skills_system_prompt(
     available_tools: "set[str] | None" = None, available_toolsets: "set[str] | None" = None,
     compact_categories: "frozenset[str] | None" = None, skills_dir_override: "Path | None" = None,
+    names_only: bool = False,
 ) -> str:
     """Compact skill index for the system prompt.
 
@@ -1284,7 +1285,8 @@ def build_skills_system_prompt(
         if not skills_dir.exists() and not external_dirs and not project_dirs:
             return ""
         return _build_skills_system_prompt_inner(
-            skills_dir, external_dirs, available_tools, available_toolsets, compact_categories, project_dirs)
+            skills_dir, external_dirs, available_tools, available_toolsets, compact_categories, project_dirs,
+            names_only=names_only)
     finally:
         if _home_token is not None:
             reset_hermes_home_override(_home_token)
@@ -1358,8 +1360,6 @@ def _render_skills_index(
         "context, so their descriptions are omitted — the skills work "
         "normally and load with skill_view(name) as usual.)"
     ) if demoted else ""
-    # Don't name web_search when the session has no web tools (dangling reference).
-    _basic_tools = "terminal" if available_tools is not None and "web_search" not in available_tools else "web_search or terminal"
     index_lines = []
     for category in sorted(skills_by_category):
         entries = skills_by_category[category]
@@ -1382,23 +1382,18 @@ def _render_skills_index(
         )
     return (
         "## Skills\n"
-        "Before replying, scan the skills below. If a skill matches or is even partially relevant to your "
-        "task, you MUST load it with skill_view(name) and follow its instructions. Err on the side of "
-        "loading — it is always better to have context you don't need than to miss critical steps, pitfalls, "
-        "or established workflows. Skills contain specialized knowledge — API endpoints, tool-specific "
-        "commands, and proven workflows that outperform general-purpose approaches. Load the skill "
-        f"even if you think you could handle the task with basic tools like {_basic_tools}. "
-        "Skills also encode the user's preferred approach, conventions, and quality standards for tasks like "
-        "code review, planning, and testing — load them even for tasks you already know how to do, because "
-        "the skill defines how it should be done here.\n"
+        "Use the catalog selectively. For a named integration, specialized workflow, or project convention, "
+        "load the best matching skill with skill_view(name) before acting. Load at most one initially; load a "
+        "second only if the first explicitly lacks the procedure you need. For ordinary questions and standard "
+        "work you already know how to do, answer directly instead of loading general process skills. Use "
+        "skills_list when the names below are not enough to identify the right skill.\n"
         "If a skill has issues, fix it with skill_manage(action='patch').\n"
         "After difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, "
         "had wrong commands, or needed pitfalls you discovered, update it before finishing.\n"
         "\n"
         "<available_skills>\n"
         + "\n".join(index_lines) + "\n"
-        "</available_skills>\n\n"
-        "Only proceed without loading a skill if genuinely none are relevant to the task."
+        "</available_skills>"
         + hidden_note
     )
 
@@ -1412,6 +1407,7 @@ def _build_skills_system_prompt_inner(
     skills_dir: "Path", external_dirs: "list[Path]", available_tools: "set[str] | None",
     available_toolsets: "set[str] | None", compact_categories: "frozenset[str] | None",
     project_dirs: "list[Path] | None" = None,
+    names_only: bool = False,
 ) -> str:
     # The resolved platform is part of the key: per-platform disabled-skill lists need distinct cache entries.
     _platform_hint = _current_session_platform_hint()
@@ -1422,7 +1418,7 @@ def _build_skills_system_prompt_inner(
         tuple(sorted(str(t) for t in (available_tools or set()))),
         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
         _platform_hint, tuple(sorted(disabled)), tuple(sorted(compact_categories or ())),
-        _oneshot_prompt_variant(),
+        _oneshot_prompt_variant(), bool(names_only),
     )
     snapshot = _load_skills_snapshot(skills_dir)
     app_gated = snapshot is not None and any(
@@ -1485,6 +1481,8 @@ def _build_skills_system_prompt_inner(
         for cat, cat_desc in _read_category_descriptions(ext_dir, "Could not read external skill description %s: %s").items():
             category_descriptions.setdefault(cat, cat_desc)
 
+    if names_only:
+        compact_categories = frozenset(skills_by_category)
     result = _render_skills_index(skills_by_category, category_descriptions, compact_categories, available_tools)
     with _SKILLS_PROMPT_CACHE_LOCK:
         _SKILLS_PROMPT_CACHE[cache_key] = result

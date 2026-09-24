@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from agent.system_prompt import build_system_prompt, build_system_prompt_parts
+from agent.system_prompt import _skills_prompt, build_system_prompt, build_system_prompt_parts
 
 
 def _make_agent(**overrides):
@@ -55,6 +55,33 @@ def _captured_context_cwd(agent):
     ):
         build_system_prompt_parts(agent)
     return captured["cwd"]
+
+
+def test_skills_prompt_catalog_mode_is_resolved_once_per_agent():
+    """The profile setting selects names-only rendering without making rebuilds config-mutable."""
+    agent = _make_agent(valid_tool_names=["skills_list"], platform="cli")
+    cfg = {"skills": {"prompt_catalog": "names"}}
+    with (
+        patch("hermes_cli.config.load_config_readonly", return_value=cfg),
+        patch("model_tools.get_toolset_for_tool", return_value="skills"),
+        patch("agent.prompt_builder.build_skills_system_prompt", return_value="SKILLS") as build,
+    ):
+        assert _skills_prompt(agent) == "SKILLS"
+        assert build.call_args.kwargs["names_only"] is True
+        cfg["skills"]["prompt_catalog"] = "full"
+        assert _skills_prompt(agent) == "SKILLS"
+        assert build.call_args.kwargs["names_only"] is True
+
+
+def test_skills_prompt_catalog_invalid_value_fails_open_to_full():
+    agent = _make_agent(valid_tool_names=["skills_list"], platform="cli")
+    with (
+        patch("hermes_cli.config.load_config_readonly", return_value={"skills": {"prompt_catalog": "surprise"}}),
+        patch("model_tools.get_toolset_for_tool", return_value="skills"),
+        patch("agent.prompt_builder.build_skills_system_prompt", return_value="SKILLS") as build,
+    ):
+        assert _skills_prompt(agent) == "SKILLS"
+    assert build.call_args.kwargs["names_only"] is False
 
 
 @pytest.mark.parametrize("task_id, expected", [(None, False), ("t_worker", True)])

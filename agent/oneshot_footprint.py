@@ -41,8 +41,10 @@ def prune_oneshot_tools(tools: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]
 
 ONESHOT_SKILLS_LOAD_GUIDANCE = (
     "## Skills\n"
-    "Scan the skills below and load one with skill_view(name) only when it carries domain knowledge you lack "
-    "for THIS task (an API, a tool's commands, a project's conventions). Do not load general process skills "
-    "(testing, debugging, review methodology) for work you already know how to do, and do not create or edit "
-    "skills: this is a one-shot run with no later session to reuse them.\n"
+    "Use the catalog selectively. For a named integration, specialized workflow, or project convention, load "
+    "the best matching skill with skill_view(name) before acting. Load at most one initially; load a second only "
+    "if the first explicitly lacks the procedure you need. For ordinary questions and standard work you already "
+    "know how to do, answer directly instead of loading general process skills. Use skills_list when the names "
+    "below are not enough to identify the right skill. Do not create or edit skills: this is a one-shot run with "
+    "no later session to reuse them.\n"
 )
