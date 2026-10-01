@@ -1926,13 +1926,15 @@ class TurnRunner:
                 # Quota cap with valid credentials: /login cannot help; name the reset window (#89401).
                 from gateway.run import _gateway_provider_error_reply
                 return {"final_response": _gateway_provider_error_reply(str(exc)),
-                        "messages": [], "api_calls": 0, "tools": []}
+                        "messages": [], "api_calls": 0, "tools": [], "failed": True,
+                        "failure_reason": "provider rate limit"}
             return {
                 "final_response": (
                     "⚠️ I couldn't connect to the AI model service, so this message wasn't processed. "
                     "Use /login to sign in again, or /model to pick a different model. If it keeps "
                     "failing, run `hermes doctor` on the host."),
                 "messages": [], "api_calls": 0, "tools": [],
+                "failed": True, "failure_reason": "provider connection failure",
             }
         pr = runner._provider_routing
         reasoning_config = runner._resolve_session_reasoning_config(source=ctx.source, session_key=ctx.session_key, model=model)
@@ -1981,6 +1983,11 @@ class TurnRunner:
             "compression_deferred": result.get("compression_deferred", False),
             "tools": ctx.tools_holder[0] or [],
             "history_offset": history_offset, "compacted_in_place": compacted_in_place, "session_id": effective_session_id,
+            # Unique per real compression attempt; a session id would suppress later in-place compactions.
+            "compaction_event_id": getattr(agent, "_compression_attempt_id", None) if compacted_in_place else None,
+            # Parsed directly from real response headers by the active agent; never inferred.
+            "rate_limit_state": getattr(agent, "_rate_limit_state", None) if agent else None,
+            "credits_state": getattr(agent, "_credits_state", None) if agent else None,
             **usage,
         }
         if not final_response:
