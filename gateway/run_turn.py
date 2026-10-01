@@ -1219,6 +1219,18 @@ class GatewayTurnMixin:
                 source, attempt.meta, t("gateway.compress.aux_failed", model=_aux_model, error=_aux_err),
                 "aux-model-fallback notice",
             )
+        elif _hyg_rotated or _hyg_in_place:
+            # Detached hygiene has successfully persisted history, but does not travel through
+            # the runner's compacted_in_place result. Latch its session-level confirmation.
+            from gateway.context_usage_alerts import ContextUsageAlerts
+            _usage_alerts = getattr(self, "_context_usage_alerts", None)
+            if _usage_alerts is None:
+                _usage_alerts = self._context_usage_alerts = ContextUsageAlerts()
+            _notice = _usage_alerts.compaction_alert(
+                session_key, getattr(attempt.agent, "_compression_attempt_id", None),
+            )
+            if _notice:
+                await self._hmwa_hygiene_notify(source, attempt.meta, _notice, "compaction notice")
 
     async def _hmwa_hygiene_codex_compaction(self, hs, plan, history, session_entry, session_key, _hyg_runtime):
         """codex app-server runtime: the real context is the server-side thread, not the transcript
@@ -2237,8 +2249,24 @@ class GatewayTurnMixin:
                 reply_expected=event.reply_expected,
             )
             response = self._hmwa_prepend_reasoning(agent_result, response, source, _intentional_silence)
-            _footer_line = self._hmwa_runtime_footer_line(agent_result, source, _turn_seconds)
-            # Streaming already delivered the body: the footer goes out as a trailing send instead.
+            # Context telemetry and provider allowance are optional. Values here come from
+            # the turn runner / captured response headers; no window or billing state is guessed.
+            from gateway.context_usage_alerts import ContextUsageAlerts, compose_turn_alert, inject_turn_alert
+            _usage_alerts = getattr(self, "_context_usage_alerts", None)
+            if _usage_alerts is None:
+                _usage_alerts = self._context_usage_alerts = ContextUsageAlerts()
+            _alert_session = session_key or session_entry.session_id
+            _usage_alert = compose_turn_alert(_usage_alerts, _alert_session, agent_result)
+            response, _alert_footer = inject_turn_alert(
+                response, _usage_alert,
+                already_sent=bool(agent_result.get("already_sent")),
+                intentional_silence=_intentional_silence,
+            )
+            _computed_footer_line = self._hmwa_runtime_footer_line(agent_result, source, _turn_seconds)
+            _footer_line = "\n\n".join(part for part in (
+                _alert_footer, _computed_footer_line,
+            ) if part)
+            # Streaming already delivered the body: notices and the footer go out as a trailing send instead.
             if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:
                 response = f"{response}\n\n{_footer_line}"
             await self._hmwa_post_turn_hooks(hook_ctx, agent_result, response)
