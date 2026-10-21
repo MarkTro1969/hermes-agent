@@ -169,9 +169,11 @@ def hygiene_no_commit_reason(agent) -> str:
 from gateway.run_turn_prepare import GatewayTurnPrepareMixin
 from gateway.run_turn_hygiene import GatewayTurnHygieneMixin
 from gateway.run_turn_persistence import GatewayTurnPersistenceMixin
+from gateway.run_turn_usage_alerts import GatewayTurnUsageAlertsMixin
 
 
-class GatewayTurnMixin(GatewayTurnPrepareMixin, GatewayTurnHygieneMixin, GatewayTurnPersistenceMixin):
+class GatewayTurnMixin(GatewayTurnPrepareMixin, GatewayTurnHygieneMixin, GatewayTurnPersistenceMixin,
+                       GatewayTurnUsageAlertsMixin):
     """Agent-turn execution for GatewayRunner (see module docstring)."""
 
 
@@ -330,6 +332,18 @@ class GatewayTurnMixin(GatewayTurnPrepareMixin, GatewayTurnHygieneMixin, Gateway
                 hidden_reasoning_incomplete=hidden_reasoning_incomplete,
                 is_context_overflow_failure=is_context_overflow_failure,
             )
+            # Appended only after persistence: delivered, never saved to chat history. It rides the
+            # reply (or a streamed turn's existing trailing footer) and never opens a send of its own.
+            _streamed = bool(agent_result.get("already_sent"))
+            if not _intentional_silence and (_footer_line if _streamed else response):
+                _alert = self._hmwa_usage_alert_text(
+                    self._resident_agent_for(session_key), session_key or session_entry.session_id, agent_result,
+                    agent_failed_early or hidden_reasoning_incomplete or is_context_overflow_failure,
+                )
+                if _alert and _streamed:
+                    _footer_line = f"{_footer_line}\n\n{_alert}"
+                elif _alert:
+                    response = f"{response}\n\n{_alert}"
             return await self._hmwa_deliver_turn_response(
                 event, source, session_entry, session_key, run_generation,
                 agent_result, agent_messages, response, _footer_line, _intentional_silence,
